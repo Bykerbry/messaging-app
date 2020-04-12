@@ -7,6 +7,12 @@ const {
     generateMessage,
     generateLocationMessage
 } = require('./utils/messages')
+const {
+    addUser,
+    removeUser,
+    getUser,
+    getUsersInRoom
+} = require('./utils/users')
 
 const app = express()
 const server = http.createServer(app)
@@ -22,36 +28,50 @@ let count = 0
 io.on('connection', (socket) => {
     console.log('New WebSocket Connection');
 
-    socket.emit('message', generateMessage('Welcome!'))
+    socket.on('join', ({username, room}, cb) => {
+        const { error, user } = addUser({
+            id: socket.id,
+            username,
+            room
+        })
 
-    socket.broadcast.emit('message', generateMessage('A new user has joined!'))
+        if (error) {
+            return cb(error)
+        }
+        console.log(user);
+
+        socket.join(user.room)
+
+        socket.emit('message', generateMessage('Admin','Welcome!'))
+        socket.broadcast.to(user.room).emit('message', generateMessage('Admin', `${user.username} has joined ${room}`))
+    
+        cb()
+    })
 
     socket.on('sendMessage', (sentMessage, cb) => {
+        const user = getUser(socket.id)
         const filter = new Filter()
 
         if(filter.isProfane(sentMessage)) {
             return cb('Profanity is not allowed')
         }
 
-        io.emit('message', generateMessage(sentMessage))
+        io.to(user.room).emit('message', generateMessage(user.username, sentMessage))
         cb()
     })
 
     socket.on('disconnect', () => {
-        io.emit('message', generateMessage('A user has left!'))
+        const user = removeUser(socket.id)
+        if (user) {
+            io.to(user.room).emit('message', generateMessage(user.username, `${user.username} has left the room`))
+        }
     })
 
     socket.on('sendLocation', (location, cb) => {
-        io.emit('locationMessage', generateLocationMessage(location))    
+        const user = getUser(socket.id)
+        io.to(user.room).emit('locationMessage', generateLocationMessage(user.username, location))    
         cb()
     })
-
-    // socket.emit('countUpdated', count)
-
-    // socket.on('increment', () => {
-    //     count++
-    //     io.emit('countUpdated', count)
-    // })
 })
 
 server.listen(port, () => {
